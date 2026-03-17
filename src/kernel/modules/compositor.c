@@ -182,10 +182,18 @@ void compositor_main(){
     vga_set_cursor(cursor_x, cursor_y);
     while(1){
         
-        // main console
         char c = read_tty_output(active_tty);
         
-        if (c == '\n' || cursor_x >= SCROLL_X1) {
+        if (c == '\b') {
+            if (cursor_x > SCROLL_X0) {
+                cursor_x--;
+                vga_putc(' ', cursor_x, cursor_y);
+            } else if (cursor_y > SCROLL_Y0) {
+                cursor_y--;
+                cursor_x = SCROLL_X1;
+                vga_putc(' ', cursor_x, cursor_y);
+            }
+        } else if (c == '\n' || cursor_x >= SCROLL_X1) {
             cursor_x = SCROLL_X0;
             if (cursor_y < SCROLL_Y1) {
                 cursor_y++;

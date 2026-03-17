@@ -301,8 +301,6 @@ void* kmalloc(uint32_t size) {
     uint32_t needed    = sizeof(memory_block_t) + user_size;
     const uint32_t min_split = sizeof(memory_block_t) + 4;
 
-    serial_print("kmalloc request=%u needed=%u\n", size, needed);
-
     //multi page alloc
     if (needed > PAGE_SIZE) {
         uint32_t pages = (needed + PAGE_SIZE - 1) / PAGE_SIZE;
@@ -312,7 +310,6 @@ void* kmalloc(uint32_t size) {
 
         for (uint32_t i = 0; i < pages; i++) {
             if (!heap_grow()) {
-                serial_print("kmalloc: large alloc failed\n");
                 return NULL;
             }
         }
@@ -320,8 +317,6 @@ void* kmalloc(uint32_t size) {
         memory_block_t* block = (memory_block_t*)(uintptr_t)base;
         block->len  = total_size | USED_FLAG;
         block->next = NULL;
-
-        serial_print("large alloc: %u pages at %x\n", pages, base);
 
         return (uint8_t*)block + sizeof(memory_block_t);
     }
@@ -338,8 +333,6 @@ retry:
         }
         goto retry;
     }
-
-    serial_print("block found\n");
 
     uint32_t bsize = block_size(block);
 

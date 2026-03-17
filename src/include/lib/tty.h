@@ -4,7 +4,6 @@
 
 #include "types.h"
 #include "spinlock.h"
-#include "tty.h"
 
 #define TTY_INPUT_BUFF_SIZE 1024
 #define TTY_OUTPUT_BUFF_SIZE 1024

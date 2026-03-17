@@ -94,3 +94,9 @@ void speaker_error(){
     speaker_stop();
     
 }
+
+void SpeakerBlip(){
+    speaker_beep(120);
+    sleep_ms(25);
+    speaker_stop();
+}

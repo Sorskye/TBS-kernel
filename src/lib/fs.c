@@ -200,7 +200,9 @@ int sys_mkdir(const char* path)
     if (!last_slash) {
         // relative path, create in cwd
         strcpy(dir_name, path);
-        strcpy(parent_path, ".");
+        char buff[32];
+        build_path(current_process->cwd, buff);
+        strcpy(parent_path, buff);
     } else {
         size_t len = last_slash - path;
         if (len == 0) { // path like "/dirname"
@@ -211,6 +213,8 @@ int sys_mkdir(const char* path)
         }
         strcpy(dir_name, last_slash + 1);
     }
+
+    serial_print("making directory: %s in %s\n", dir_name, parent_path);
 
     // 2. Find parent inode
     int fd = sys_open(parent_path, 0);
@@ -223,8 +227,6 @@ int sys_mkdir(const char* path)
     if (!parent || parent->type != INODE_DIR)
         return -1;
 
-    
-        
     int res = parent->inode_ops->mkdir(parent, dir_name);
 
     return res;
@@ -286,7 +288,7 @@ const char* find_name_in_parent(struct inode* parent, struct inode* child)
 
 void build_path(struct inode* cwd, char* buf)
 {
-    const char* parts[32];
+    char parts[32][32];  // Store copies, not pointers
     int depth = 0;
 
     struct inode* cur = cwd;
@@ -296,7 +298,8 @@ void build_path(struct inode* cwd, char* buf)
         if (!name)
             break;
 
-        parts[depth++] = name;
+        strcpy(parts[depth], name);  // Copy the string
+        depth++;
         cur = cur->parent;
     }
 

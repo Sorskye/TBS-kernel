@@ -34,16 +34,22 @@ struct inode* vfs_lookup(const char* path, struct inode* base){
 
     /* absolute paths only */
     if (*path == '/')
+    {
+        base = root_inode;
         path++;
+    }
+        
 
     char name[256];
 
-    while (*path) {
-
+    while (*path)
+    {
         int len = 0;
 
         /* extract next path component */
         while (*path && *path != '/') {
+            if (len >= sizeof(name) - 1)
+                return NULL;
             name[len++] = *path++;
         }
 
@@ -58,12 +64,11 @@ struct inode* vfs_lookup(const char* path, struct inode* base){
         struct inode* next = base->inode_ops->lookup(base, name);
         if (!next)
             return NULL;
+        inode_ref(next);
 
-        
         base = next;
     }
-
-    return inode_ref(base);
+    return base;
 }
 
 const char* vfs_path_last(const char* path)

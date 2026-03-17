@@ -80,6 +80,9 @@ struct inode* ramfs_create_root()
 // inode ops
 struct inode* ramfs_lookup(struct inode* dir, const char* name)
 {
+    if (dir->type != INODE_DIR)
+        return NULL;
+
     ramfs_dir* d = dir->data;
 
     if(strcmp(name, ".") == 0){
@@ -92,9 +95,13 @@ struct inode* ramfs_lookup(struct inode* dir, const char* name)
 
     for (int i = 0; i < d->count; i++) {
         if (strcmp(d->entries[i].name, name) == 0) {
+            serial_print("lookup: dir=%p, name=%s -> %x\n",dir, name, d->entries[i].inode);
             return d->entries[i].inode;   // IMPORTANT
+            
         }
     }
+    
+
 
     return NULL;
 }
@@ -128,6 +135,7 @@ int ramfs_mkdir(struct inode* dir, const char* name)
 {
     ramfs_dir* d = dir->data;
 
+
     if (d->count >= 64)
         return -1;
 
@@ -147,15 +155,22 @@ int ramfs_mkdir(struct inode* dir, const char* name)
     memset(new_data, 0, sizeof(ramfs_dir));
     new_inode->data = new_data;
 
+
+    new_data->entries[0].inode = new_inode; // self
+    strcpy(new_data->entries[0].name, ".");
+    new_data->count++;
+
+    
+    new_data->entries[1].inode = dir;  // parent
+    strcpy(new_data->entries[1].name, "..");
+    new_data->count++;
     
     d->entries[d->count].inode = new_inode;
     strcpy(d->entries[d->count].name, name);
     d->count++;
 
+    serial_print("mkdir: parent=%p, new_inode=%p, name=%s\n", dir, new_inode, name);
 
-    serial_print("mkdir %s: parent=%p, new=%p\n", name, dir, new_inode);
-serial_print("stored in parent: name=%s inode=%p\n"
-            );
 
     return 0;
 }

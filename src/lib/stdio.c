@@ -75,6 +75,13 @@ void printf(const char *fmt, ...) {
                     break;
                 }
 
+                case 'p':{
+                    char* buf = "                   ";
+                    build_path((struct inode*)va_arg(args, struct inode*), buf);
+                    while (*buf) out[out_i++] = *buf++;
+                    break;
+                }
+
                 case '%': {
                     out[out_i++] = '%';
                     break;

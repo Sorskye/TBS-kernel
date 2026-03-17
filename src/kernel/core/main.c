@@ -68,7 +68,7 @@ void kernel_main(uint32_t magic, struct multiboot_info* mbinfo) {
 
 
     
-    
+    pit_init(200);
     init_scheduler();
     
     // setup tty
@@ -83,14 +83,8 @@ void kernel_main(uint32_t magic, struct multiboot_info* mbinfo) {
     // setup ramfs
     root_inode = ramfs_create_root();
     vfs_init(root_inode);
-    
-
-    
-    
 
     // scheduler tasks
-   
-
 
     void console_task(){
         char input[64];
@@ -103,10 +97,10 @@ void kernel_main(uint32_t magic, struct multiboot_info* mbinfo) {
         while(1){
             
             char cwd[64];
-            memcpy(0, cwd, 64);
+            memset(cwd, 0, 64);
             build_path(current_process->cwd, cwd);
            
-            printf("%s>",cwd);
+            printf("%s $ ",cwd);
 
             
             tty_read_line(active_tty, input, 64);
@@ -158,6 +152,10 @@ void kernel_main(uint32_t magic, struct multiboot_info* mbinfo) {
 
             }
 
+            if(!argv[0]){
+                continue;
+            }
+
             if(strcmp(argv[0], "cd") == 0){
                 int ret = sys_chdir(argv[1]);
                 serial_print("Ret: %d",ret);
@@ -168,6 +166,7 @@ void kernel_main(uint32_t magic, struct multiboot_info* mbinfo) {
                 sys_mkdir(argv[1]);
                 continue;
             }
+
 
             if(strcmp(argv[0], "touch") == 0){
                 sys_create(argv[1]);
@@ -203,6 +202,13 @@ void kernel_main(uint32_t magic, struct multiboot_info* mbinfo) {
                 continue;
             }
 
+            if(strcmp(argv[0], "lspci") == 0){
+                pci_enumerate();
+                continue;
+            }
+
+            SpeakerBlip();
+            printf("?\n");
 
             
         

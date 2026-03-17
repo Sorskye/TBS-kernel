@@ -121,32 +121,87 @@ int tty_read_line(tty_t* tty, char *buffer, int maxlen)
 
 void tty_worker(void) {
     tty_t* tty = active_tty; 
+    char edit_buffer[256];  // Line being edited
+    int edit_pos = 0;
+    
     while (1) {
         if (tty->raw_input_head == tty->raw_input_tail) {
             tty->task_worker_wait = current_task;
             block_task(current_task);
             __asm__ __volatile__("int $32");
         }
+        
         while (tty->raw_input_head != tty->raw_input_tail) {
             spinlock_acquire(&tty->raw_input_lock);
             char c = tty->raw_input_buff[tty->raw_input_tail];
             tty->raw_input_tail = (tty->raw_input_tail + 1) % TTY_INPUT_BUFF_SIZE;
             spinlock_release(&tty->raw_input_lock);
 
-            if (tty->echo == 1)
-                tty_write(tty, c);
-
-            spinlock_acquire(&tty->input_lock);
-            int next_head = (tty->input_head + 1) %TTY_INPUT_BUFF_SIZE;
-            if (next_head != tty->input_tail) {
-                tty->input_buff[tty->input_head] = c;
-                tty->input_head = next_head;
+            // Handle backspace
+            if (c == '\b') {
+                if (edit_pos > 0) {
+                    edit_pos--;
+                    // Echo backspace sequence: backspace, space, backspace
+                    if (tty->echo == 1) {
+                        tty_write(tty, '\b');
+                        tty_write(tty, ' ');
+                        tty_write(tty, '\b');
+                    }
+                }
+                continue;
             }
-            spinlock_release(&tty->input_lock);
 
+            // Handle newline - send completed line to input buffer
+            if (c == '\n' || c == '\r') {
+                spinlock_acquire(&tty->input_lock);
+                
+                // Write all buffered characters
+                for (int i = 0; i < edit_pos; i++) {
+                    int next_head = (tty->input_head + 1) % TTY_INPUT_BUFF_SIZE;
+                    if (next_head != tty->input_tail) {
+                        tty->input_buff[tty->input_head] = edit_buffer[i];
+                        tty->input_head = next_head;
+                    }
+                }
+                
+                // Write newline
+                int next_head = (tty->input_head + 1) % TTY_INPUT_BUFF_SIZE;
+                if (next_head != tty->input_tail) {
+                    tty->input_buff[tty->input_head] = '\n';
+                    tty->input_head = next_head;
+                }
+                
+                spinlock_release(&tty->input_lock);
+                
+                // Echo the newline
+                if (tty->echo == 1) {
+                    tty_write(tty, '\n');
+                }
+                
+                // Reset edit buffer for next line
+                edit_pos = 0;
+                
+                // Wake up reader
+                if (tty->task_read_wait) {
+                    wake_task(tty->task_read_wait);
+                }
+                continue;
+            }
+
+            // Regular character - add to edit buffer
+            if (edit_pos < 255) {
+                edit_buffer[edit_pos++] = c;
+                
+                // Echo the character
+                if (tty->echo == 1) {
+                    tty_write(tty, c);
+                }
+            }
         }
-        if (tty->task_read_wait)
+        
+        if (tty->task_read_wait) {
             wake_task(tty->task_read_wait);
+        }
     }
 }
 

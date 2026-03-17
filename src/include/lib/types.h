@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stdarg.h>
 
+
 #define BYTE_MAX  0x7F
 #define BYTE_MIN -0x80
 #define UBYTE_MAX 0xFF

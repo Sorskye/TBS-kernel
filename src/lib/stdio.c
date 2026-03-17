@@ -1,20 +1,16 @@
-#include "serial.h"
-#include "io.h"
-#include "spinlock.h"
+
+//libs
+#include "types.h"
+#include "stdio.h"
+
+#include "task.h"
+#include "tty.h"
 #include "string.h"
-
-static int serial_ready() {
-    return inb(0x3F8 + 5) & 0x20;
-}
-
-void serial_write(char c){
-    while (!serial_ready());
-    outb(0x3F8,c);
-}
+// drivers
 
 
 
-void serial_print(const char *fmt, ...) {
+void printf(const char *fmt, ...) {
     char out[1024];
     
     size_t out_i = 0;
@@ -100,31 +96,10 @@ void serial_print(const char *fmt, ...) {
 
     out[out_i] = '\0';
 
-    for(int i=0; i<= out_i; i++){
-        char c = out[i];
-        serial_write(c);
+    if (current_task && current_task->tty) {
+        tty_write_line(current_task->tty, out);
     }
 
     va_end(args);
 }
 
-
-
-void serial_print_hex(uint32_t value, int width){
-    char hex_chars[] = "0123456789abcdef";
-    char buffer[9];
-    int i = 0;
-
-
-    do {
-        buffer[i++] = hex_chars[value & 0xF];
-        value >>= 4;
-    } while (value && i < 8);
-
-    while (i < width && i < 8)
-        buffer[i++] = '0';
-
-    for (int j = i - 1; j >= 0; j--)
-        serial_write(buffer[j]);
-
-}

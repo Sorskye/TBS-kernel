@@ -4,10 +4,13 @@
 #include "ps2_key.h"
 #include "IDT.h"
 #include "io.h"
-#include "console.h"
 #include "kerror.h"
 
+#include "serial.h"
+#include "tty.h"
+
 static bool shift = false;
+
 
 static const char scancode_to_ascii[128] = {
     0,   27, '1','2','3','4','5','6','7','8','9','0','-','=', '\b',
@@ -23,38 +26,19 @@ static const char scancode_to_ascii_shift[128] = {
     'C','V','B','N','M','<','>','?', 0,'*', 0,' ', 0,
 };
 
-// thread context
-// ring buffer helpers
-static inline bool kb_ring_empty(void) {
-    return kb_ring.head == kb_ring.tail;
-}
 
-
-static inline bool kb_ring_full(void) {
-    return ((kb_ring.head + 1) & (KB_RING_SIZE - 1)) == kb_ring.tail;
-}
+// task context
 
 
 
-static inline bool kb_ring_get(uint8_t *sc) {
-    if (kb_ring_empty()) return false;
-    *sc = kb_ring.buf[kb_ring.tail];
-    kb_ring.tail = (kb_ring.tail + 1) & (KB_RING_SIZE - 1);
-    return true;
-}
 
-
-void keyboard_subscribe(task_t* task){
-    kb_subscriber_t *sub = malloc(sizeof(kb_subscriber_t));
-    if(!sub) return;
-    sub->task = task;
-    sub->next = kb_subscribers;
-    kb_subscribers = sub;
-}
+// irq context 
 
 char translate_scancode(uint8_t sc)
 {
-    if (sc & 0x80) {
+    // Key release
+    if (sc & 0x80)
+    {
         uint8_t code = sc & 0x7F;
 
         if (code == SC_LSHIFT_PRESS || code == SC_RSHIFT_PRESS)
@@ -63,7 +47,9 @@ char translate_scancode(uint8_t sc)
         return 0;
     }
 
-    if (sc == SC_LSHIFT_PRESS || sc == SC_RSHIFT_PRESS) {
+    // Key press
+    if (sc == SC_LSHIFT_PRESS || sc == SC_RSHIFT_PRESS)
+    {
         shift = true;
         return 0;
     }
@@ -75,54 +61,30 @@ char translate_scancode(uint8_t sc)
         return scancode_to_ascii_shift[sc];
     else
         return scancode_to_ascii[sc];
-
-    
 }
 
 
 
-void keyboard_worker(uint32_t pid_sender) {
-    while (true){
-        uint8_t sc;
-        while (kb_ring_get(&sc)) {
-            kb_subscriber_t *sub = kb_subscribers;
-            while (sub) {
-                if (sub->task) {
-                
-                    message_t *msg = malloc(sizeof(message_t));;
-                    msg->type       = PS2_NEW_INPUT;
-                    msg->arg0       = ((uint32_t)sc) << 24;  // scancode in high byte
-                    msg->PID_SENDER = pid_sender; // e.g. keyboard driver thread PID
-                    send_process_message(sub->task->pid, msg);
-                    free(msg);
-                
-                }
-                sub = sub->next;
-            }
-        }
+static inline void kb_ring_handle_input(uint8_t sc) {
+
+    char c = translate_scancode(sc);
+
+    if(c == 0){return;}
+
+    int next_head = (active_tty->raw_input_head + 1) %TTY_INPUT_BUFF_SIZE;
+
+    if (next_head != active_tty->raw_input_tail) {
+      
+        active_tty->raw_input_buff[active_tty->raw_input_head] = c;
+        active_tty->raw_input_head = next_head;
+        wake_task(active_tty->task_worker_wait);
     }
-}
-
-
-
-// irq context 
-static inline void kb_ring_put(uint8_t sc) {
-    if (!kb_ring_full()) {
-        kb_ring.buf[kb_ring.head] = sc;
-        kb_ring.head = (kb_ring.head + 1) & (KB_RING_SIZE - 1);
-    } else {
-        kb_ring.tail = (kb_ring.tail + 1) & (KB_RING_SIZE - 1);
-        kb_ring.buf[kb_ring.head] = sc;
-        kb_ring.head = (kb_ring.head + 1) & (KB_RING_SIZE - 1);
-    }
+    return;
 }
 
 void keyboard_irq(){
-
     uint8_t scancode = inb(0x60);
-    if((scancode & 0x80) != 0){return;}
-   
-    kb_ring_put(scancode);
+    kb_ring_handle_input(scancode);
     return;
 }
 

@@ -3,10 +3,11 @@
 #include "GDT.h"
 #include "kerror.h"
 #include "io.h"
-#include "console.h"
+#include "stdio.h"
 #include "task.h"
 #include "ps2_key.h"
 
+#include "serial.h"
 
 #include "string.h"
 
@@ -78,6 +79,13 @@ const char *current_irq_name = NULL;
 #define INTERRUPT_GATE 0x8E
 #define TRAP_GATE 0x8F
 
+void cli(){
+    __asm__ __volatile__("cli");
+}
+
+void sti(){
+    __asm__ __volatile__("sti");
+}
 
 
 void Exception_Handler(panic_registers *regs) // 0-31 CPU isr
@@ -86,7 +94,8 @@ void Exception_Handler(panic_registers *regs) // 0-31 CPU isr
     {
         
     default:
-        panic(regs);
+        serial_print("%d",regs->errCode);
+        panic("EXCEPTION",regs);
         break;
     }
     
@@ -102,8 +111,10 @@ void send_eoi(uint8_t irq)
 }
 
 void IRQ_common_Handler(panic_registers *regs) {
-    current_irq_name = irqMessages[regs->errCode]; // errCode is IRQ nummer
-
+    
+    current_irq_name = irqMessages[regs->errCode]; // errCode is IRQ number
+    
+    
     switch (regs->errCode)
     {
     case 0:
@@ -111,6 +122,8 @@ void IRQ_common_Handler(panic_registers *regs) {
     case 1:
         keyboard_irq();
         break;
+        //panic(regs);
+    case 2:
     default:
         break;
     }
@@ -170,7 +183,8 @@ bool IDT_install(){
     IDT_SET_GATE(29, isr29);
     IDT_SET_GATE(30, isr30);
     IDT_SET_GATE(31, isr31);
-    // PIC remap om overlap tussen ISR en IRQ te voorkomen
+
+    // remap PIC to avoid overlap between isr and irq
     outb(0x20, 0x11);
     outb(0xA0, 0x11);
     outb(0x21, 0x20);

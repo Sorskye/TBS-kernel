@@ -1,4 +1,5 @@
 global isr_handler_stub
+global schedule_next
 global loadIDT
 
 extern Exception_Handler
@@ -58,6 +59,9 @@ isr_handler_stub:
 
     sti 
     iret
+
+
+
 
 irq_timer_stub:
     cli

@@ -2,7 +2,7 @@
 //libs
 #include "main.h"
 #include "types.h"
-#include "console.h"
+#include "stdio.h"
 #include "kerror.h"
 #include "GDT.h"
 #include "IDT.h"
@@ -11,22 +11,34 @@
 #include "string.h"
 #include "ps2_key.h"
 #include "sleep.h"
+#include "serial.h"
+#include "pci.h"
+#include "fs.h"
+#include "vfs.h"
+#include "ramfs.h"
 
 #include "task.h"
-#include "WM.h"
+#include "tty.h"
+#include "compositor.h"
+#include "lpcspeak.h"
+
+
 
 #define KERNEL_VER_REL 0
 #define KERNEL_VER_MAJ 1
-#define KERNEL_VER_MIN 0
+#define KERNEL_VER_MIN 2
+#define KERNEL_VER_CODENAME "ORBIT"
 // drivers
 #include "vga-textmode.h"
 #include "pit.h"
+
+struct inode* root_inode;
 
 // temp
 void no_sse(){
     vga_refresh();
     printf("FOUT: SSE is niet beschikbaar..\n");
-    printf("zonder SSE kan deze versie van de KRS-kernel niet opstarten.");
+    printf("zonder SSE kan deze versie van TBS-86 niet opstarten.");
     vga_refresh();
     return;
 }
@@ -36,240 +48,183 @@ void kernel_main(uint32_t magic, struct multiboot_info* mbinfo) {
         //halt();
     }
 
+    parse_memory_map(mbinfo);
+
     const char* cmdline = (const char*) mbinfo->cmdline;
 
     if (cmdline) {
-    // OS modus voorbeeld
-    if (strstr(cmdline, "mode=safe")) {
-       SAFE_MODE = true;
-    }
-    if (strstr(cmdline, "mode=debug")) {
-        DEBUG_MODE = true;
-    }
-    if (strstr(cmdline, "mode=vm")) {
-        VM_MODE = true;
-    }
+    // Example parsing
     }
 
-    // TODO: clean vga driver
-    setsource_console_putchar(vga_putc);
-    setsource_console_clear(vga_clear);
-    setsource_console_color(vga_set_color);
-    setsource_console_cursor(vga_set_cursor);
 
-    if (VM_MODE){
-        setsource_console_attr(vga_make_attr);
-    }else{setsource_console_attr(vga_make_attr_blink);}
     
     vga_init();
-    
+    serial_print("vga init\n");
 
-    console_color(VGA_WHITE, VGA_BLACK);
-    clear();
-
-    // TODO: multiboot checksum controleren in parse_memory_map()
+    // TODO: check multiboot checksum in parse_memory_map()
 
     GDT_install();
     IDT_install();
 
-    parse_memory_map(mbinfo);
 
-    if(SAFE_MODE){
-        pit_init((uint32_t)150);
-    }else{ pit_init((uint32_t)1000);}
+    
+    
+    init_scheduler();
+    
+    // setup tty
+    
+    tty_init();
+    serial_print("init tty\n");
+    tty_t* tty0 = create_tty();
+    tty_t* tty1 = create_tty();
+    tty_t* tty2 = create_tty();
+    active_tty = tty0;
+
+    // setup ramfs
+    root_inode = ramfs_create_root();
+    vfs_init(root_inode);
+    
+
     
     
 
-    // applications
+    // scheduler tasks
+   
 
 
-    void task_mng(){
+    void console_task(){
+        char input[64];
+        char *argv[8];
+        int argc;
+
+        printf("TBS-86 Version: %d.%d.%d codename: %s\n",KERNEL_VER_REL, KERNEL_VER_MAJ, KERNEL_VER_MIN, KERNEL_VER_CODENAME);
+        printf("\n");
         
-        keyboard_subscribe(current_task);
-
-        extern uint8_t __kernel_start[];
-        extern uint8_t __kernel_end[];
-
-        uint32_t taskmngID = wm_api_make_window(VGA_BLACK, VGA_YELLOW, 25, 15, 1, 2, true, true, "Task Manager");
-
-        uint32_t used_percentage(uint32_t total_bytes, uint32_t free_bytes) {
-            if (total_bytes == 0) return 0;
-            uint32_t used = total_bytes - free_bytes;
-            return (used * 100U + total_bytes / 2) / total_bytes;
-        }
-
-        void refresh(){
+        while(1){
             
-            
-            uint8_t cursor_x = 2;
-            uint8_t cursor_y = 2;
-
-            mem_inf_t* mem_inf = get_mem_inf();
-            uint32_t total_usable_memory = mem_inf->total_usable_memory;
-            memory_block_t* memory_block_list = mem_inf->memory_block_list;
-
-                  
-            uint32_t total_free_memory = 0;
-            memory_block_t* cur = memory_block_list;
-
-            while (cur) {
-                uint32_t raw = cur->len & ~1U;
-                total_free_memory += raw;
-                cur = cur->next;
-            }
-
-            uint32_t mem_free_mb = total_free_memory / 1024 /1024;
-            uint32_t mem_total_mb = total_usable_memory / 1024 / 1024;
-            uint32_t percentage_used = used_percentage(total_usable_memory, total_free_memory);
-            char msg[16];
-            strconcat(msg, "MEM FREE: %d-MB",mem_free_mb);
-            wm_api_place_text(VGA_BLACK, VGA_YELLOW, cursor_x, cursor_y, msg, taskmngID);
-            cursor_y+=1;
-            strconcat(msg, "MEM TOT: %d-MB",mem_total_mb);
-            wm_api_place_text(VGA_BLACK, VGA_YELLOW, cursor_x, cursor_y, msg, taskmngID);
-            cursor_y+=2;
-            strconcat(msg, "USED: %d%%",percentage_used);
-            wm_api_place_text(VGA_BLACK, VGA_YELLOW, cursor_x, cursor_y, msg, taskmngID);
-            cursor_y+=2;
-       
-            wm_api_place_text(VGA_BLACK, VGA_YELLOW, cursor_x, cursor_y, "PID    TASK_NAME", taskmngID);
-            
-            wm_api_place_text(VGA_BLACK, VGA_YELLOW, cursor_x, cursor_y, "", taskmngID);
+            char cwd[64];
+            memcpy(0, cwd, 64);
+            build_path(current_process->cwd, cwd);
            
-                task_t* task_table = get_task_table();
-            
-                for (uint8_t id = 0; id < 16; id++)
-                {   
-                    if(task_table[id].pid == 0){continue;}
-                    char str[256];
-                    strconcat(str, "%d  -  %s",task_table[id].pid, task_table[id].taskname);
-                    wm_api_place_text(VGA_BLACK, VGA_YELLOW, cursor_x, cursor_y+id, str, taskmngID);                
-                }  
+            printf("%s>",cwd);
 
             
-        }
-        refresh();
-
-        bool isthere = true;
-        void inc_msg(message_t* msg){
-            if (msg->type == PS2_NEW_INPUT){
-                uint8_t scancode = (msg->arg0 >> 24) & 0xFF;
-                char key = translate_scancode(scancode);
-
-                if(key == 'r'){
-                   refresh();
+            tty_read_line(active_tty, input, 64);
+            for (int i = 0; input[i]; i++) {
+                if (input[i] == '\n' || input[i] == '\r') {
+                    input[i] = '\0';
+                    break;
                 }
             }
-        }    
-        
-        message_t msg;
-        while(true){
-           if(receive_process_message(&msg)){
-                inc_msg(&msg);
-           }
-        }
-    }
 
-    void AWM(){
-        init_wm();
-        wm_loop();
-    }
+            argc = 0;
+            char *p = input;
 
-    void desktop(){
+            // Parse arguments
+            while (*p) {
 
+                while (*p == ' ')
+                    p++;
 
-        
-        uint32_t init_ID = wm_api_make_window(VGA_BLACK, VGA_LIGHT_GRAY, GRID_WITDH, GRID_HEIGHT, 0, 0, false, false, "INIT");
-        
-        char *str = "                                                                                ";
-        wm_api_place_text(VGA_LIGHT_GRAY, VGA_WHITE, 0, 0, str, init_ID);
-        wm_api_place_text(VGA_DARK_GRAY, VGA_WHITE, 0, 0, "KRS-kernel versie 0.1.1", init_ID);
-        
-        while (true)
-        {
-            asm ("nop");
-        }
-        
-    }
+                if (*p == '\0')
+                    break;
 
-    void term32(){
-        uint32_t newwin = wm_api_make_window(VGA_GREEN, VGA_BLACK, 35, 17, 30, 2, true, true,"term");
-        uint32_t cursorx = 1;
-        uint32_t cursory = 1;
+                argv[argc++] = p;
 
-        size_t maxbuffersize = 512;
-        char *keyboardbuffer = malloc(maxbuffersize);
+                if (argc >= 64)
+                    break;
 
-        void handle_return(){
+                while (*p && *p != ' ')
+                    p++;
 
-            if(keyboardbuffer){
-                free(keyboardbuffer);
+                if (*p) {
+                    *p = '\0';
+                    p++;
+                }
             }
-            keyboardbuffer = malloc(maxbuffersize);
-        }
 
-        void handle_process_message(message_t* msg){
-            if (msg->type == PS2_NEW_INPUT ){
-                uint8_t scanline = (msg->arg0 >> 24) & 0xFF;
-                char key = translate_scancode(scanline);
 
-                if (scanline == 0x1c){
-                    handle_return();
-                    cursorx = 1;
-                    cursory += 1;
-                }else if(cursorx >= 34){
-                    cursorx = 1;
-                    cursory += 1; 
-                }
-
-                if(key!=0){
-                    strconcat(keyboardbuffer, "%c", key);
-                    char str[2];
-                    strconcat(str, "%c",key);
-                    wm_api_place_text(VGA_GREEN, VGA_BLACK, cursorx, cursory, str, newwin);
-                    cursorx++;
-                }
-
+            if(strcmp(argv[0], "ls") == 0){
                 
+                int fd = sys_open(cwd, 0);
+                dirent_t ent;
+
+                while (sys_readdir(fd, &ent) == 0) {
+                    printf(ent.name);
+                    printf("\n");
+                }
+                sys_close(fd);
+                continue;
+
             }
-        }
 
-        while(true){
-            message_t msg;
-            if(receive_process_message(&msg)){
-                handle_process_message(&msg);
+            if(strcmp(argv[0], "cd") == 0){
+                int ret = sys_chdir(argv[1]);
+                serial_print("Ret: %d",ret);
+                continue;
             }
-        }
-    }
 
-    int WM_PID = create_task((void*)AWM, (char*)"AWM",0);
-    int keyboard_worker_PID = create_task((void*)keyboard_worker, "kb_thread", 0);
+            if(strcmp(argv[0], "mkdir") == 0){
+                sys_mkdir(argv[1]);
+                continue;
+            }
 
-    if(!SAFE_MODE){
-        int desktop_PID = create_task((void*)desktop, (char*)"desktop", 0);
-        int taskmng_PID = create_task((void*)task_mng, (char*)"task-mng", 0);
-        int term = create_task((void*)term32, (char*)"term",0);
-        task_t* task = PID_to_task(term);
-        keyboard_subscribe(task);
-        
-    }else{
-        // safe mode applications
-        void info_task(){
-            int info_window = wm_api_make_window(VGA_WHITE, VGA_BLUE, GRID_WITDH, GRID_HEIGHT, 0, 0, false, false, "NOTICE");
-            wm_api_place_text(VGA_WHITE, VGA_BLUE, 2,1,"RUNNING IN SAFE MODE", info_window);
-            wm_api_place_text(VGA_WHITE, VGA_BLUE, 2,3,"only REQUIRED drivers,", info_window);
-            wm_api_place_text(VGA_WHITE, VGA_BLUE, 2,4,"and task are running", info_window);
-            wm_api_place_text(VGA_WHITE, VGA_BLUE, 2,6,"press CTRL+T to open a terminal window", info_window);
+            if(strcmp(argv[0], "touch") == 0){
+                sys_create(argv[1]);
+                continue;
+            }
+
+            if(strcmp(argv[0], "clear") == 0){
+                compositor_clear_screen();
+                continue;
+            }
+
+            if(strcmp(argv[0], "cat") == 0){
+                int fd = sys_open(argv[1],0);
+                int size;
+                if(atoi(argv[2]) != 0){
+                    size = atoi(argv[2]);
+                }else{
+                    size = 512;
+                }
+               
+                char buff[size];
+                sys_read(fd,buff,size);
+                printf("%s\n",buff);
+                sys_close(fd);
+                continue;
+            }
+
+            if(strcmp(argv[0], "wf") == 0){
+                int fd = sys_open(argv[1],0);
+                int size = strlen(argv[1]);
+                sys_write(fd,argv[2], size);
+                sys_close(fd);
+                continue;
+            }
+
+
             
-            while(true){
-                asm volatile("nop");
-            }
+        
         }
-        int info_app = create_task((void*)info_task, "safemode info", 0);
         
     }
-    start_multitasking();
+
     
+    process_t* console_app =create_process("cons", (void*)console_task);
+
+    serial_print("create task made\n");
+    task_t* compositor_task = create_ktask((void*)compositor_main, 0);
+    serial_print("comp task made\n");
+    active_tty->task_read_wait = console_app->main_task;
+    active_tty->task_backend_wait = compositor_task;
+    tty1->task_backend_wait = compositor_task;
+    console_app->main_task->tty = active_tty;
+
+    serial_print("start mtd\n");
+    speaker_sound_ok();
+    start_multitasking();
+
 
     while (true)
     {

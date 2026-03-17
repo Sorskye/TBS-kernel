@@ -7,7 +7,7 @@ extern scheduler_choose_next
 extern in_interrupt
 
 
-
+; void context_switch(uint32_t **old_sp_ptr, uint32_t *new_sp)
 context_switch:
 
     mov eax, [esp + 4]       ; eax = old_sp_ptr

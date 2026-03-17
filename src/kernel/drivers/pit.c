@@ -9,7 +9,7 @@ void pit_init(uint32_t frequency) {
     asm volatile("cli");
     uint32_t divisor = 1193182 / frequency;
 
-    // zet freq
+    // set frequency
     outb(PIT_CMD, 0x34);
     outb(PIT_CH0, divisor & 0xFF);
     outb(PIT_CH0, (divisor >> 8) & 0xFF);

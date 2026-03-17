@@ -40,4 +40,7 @@ extern int task_schedule_pending;
 bool IDT_install();
 void send_eoi(uint8_t irq);
 
+void cli();
+void sti();
+
 #endif

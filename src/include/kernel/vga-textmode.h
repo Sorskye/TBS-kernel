@@ -4,6 +4,7 @@
 #include "types.h"
 
 
+
 enum VGA_COLOR{
     VGA_BLACK = 0,
     VGA_BLUE = 1,
@@ -12,8 +13,8 @@ enum VGA_COLOR{
     VGA_RED = 4,
     VGA_MAGENTA = 5,
     VGA_BROWN = 6,
-    VGA_LIGHT_GRAY = 7,
-    VGA_DARK_GRAY = 8,
+    VGA_LIGHT_GREY = 7,
+    VGA_DARK_GREY = 8,
     VGA_LIGHT_BLUE = 9,
     VGA_LIGHT_GREEN = 10,
     VGA_LIGHT_CYAN = 11,
@@ -43,14 +44,14 @@ static const uint8_t vga_default_palette[16][3] = {
 };
 
 
+extern uint16_t* vga_framebuffer;
+
 // vga framebuffers
-void vga_putc(char c);
-void vga_clear();
+void vga_putc(char c, int x, int y);
 void vga_set_color(enum VGA_COLOR FG, enum VGA_COLOR BG);
-void vga_clear();
 void vga_set_cursor(uint16_t x, uint16_t y);
-void vga_putc_at(char c, int x, int y);
-void vga_putstr(char *str);
+void vga_clear();
+
 
 void vga_disable_cursor();
 void vga_enable_cursor(uint8_t cursor_start, uint8_t cursor_end);
@@ -59,10 +60,10 @@ void vga_refresh();
 void vga_push_framebuffer(uint16_t* framebuffer);
 
 int vga_get_cursor();
-extern volatile uint8_t cursor_x, cursor_y;
-extern const uint8_t GRID_WITDH, GRID_HEIGHT;
 
+extern const uint8_t GRID_WIDTH, GRID_HEIGHT;
 
+// extern vga framebuffers
 uint16_t* alloc_framebuffer();
 uint8_t vga_make_attr_blink(enum VGA_COLOR FG, enum VGA_COLOR BG, bool blink);
 uint8_t vga_make_attr(enum VGA_COLOR FG, enum VGA_COLOR BG, bool blink);

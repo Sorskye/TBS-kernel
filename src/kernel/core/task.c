@@ -2,91 +2,83 @@
 #include "types.h"
 #include "task.h"
 #include "vga-textmode.h"
-#include "console.h"
-#include "kerror.h"
 #include "string.h"
 #include "GDT.h"
+#include "serial.h"
+#include "memory.h"
+#include "sleep.h"
+#include "tty.h"
+#include "main.h"
+#include "vfs.h"
 
-// externe asm routine
+// extern assembly routine
 extern void context_switch(uint32_t **old_sp_ptr, uint32_t *new_sp);
 
 task_t task_table[MAX_TASKS];
+process_t* current_process = NULL;
 task_t *current_task = NULL;
-static task_t *task_head = NULL;
-static int task_count = 1;
-static uint32_t next_pid = 1;
+task_t *idle_task = NULL;
+task_t *task_head = 0;
+
+ uint32_t task_count = 0;
+static uint32_t tid_count = 0;
+
+ uint32_t process_count = 0;
+static uint32_t pid_count = 0;
 
 #define INITIAL_EFLAGS 0x202  
-volatile uint32_t jiffies = 0;
 
-task_t* PID_to_task(uint32_t PID){
-    task_t* task = &task_table[PID];
-    return task;
+volatile uint32_t system_ticks = 0;
+volatile uint32_t usage_ticks = 0;
+volatile uint32_t busy_ticks = 0;
+volatile uint8_t usage = 0;
+
+
+void idle_func(){
+    while (1){
+        __asm__ __volatile__("nop");
+    }
 }
 
 
-int send_process_message(uint32_t pid_to, message_t* msg){
-    asm volatile("cli");
 
-    task_t* task_to = NULL;
-    for (int i = 0; i < MAX_TASKS; i++) {
-        if (task_table[i].pid == pid_to) {
-            task_to = &task_table[i];
-            break;
-        }
-    }
-
-    if (!task_to) {
-        asm volatile("sti");
-        return -1; 
-    }
-
-    if (task_to->queue_full==1) {
-        asm volatile("sti");
-        return -2; 
-    }
-
-    msg->PID_SENDER = current_task->pid;
-
-    task_to->queue[task_to->queue_tail] = *msg;
-    task_to->queue_tail = (task_to->queue_tail + 1) % MSG_QUEUE_SIZE;
-
-    if (task_to->queue_tail == task_to->queue_head){
-        task_to->queue_full = 1;
-    }
-    
-    if(task_to->state == TASK_BLOCKED){
-        task_to->state = TASK_READY;
-    }
-
-    asm volatile("sti");
-    return 1;
+void block_task(task_t *task){
+    task->state = TASK_BLOCKED;
+    return;
 }
 
-int receive_process_message(message_t* out){
-    asm volatile("cli");
-    if(!current_task->queue_full && (current_task->queue_head == current_task->queue_tail)){
-       
-        current_task->state = TASK_BLOCKED;
-        asm volatile("sti");
-        return 0;
+void wake_task(task_t *task){
+    task->state = TASK_READY;
+    return;
+}
+
+void terminate_task(task_t *task){
+    task->state = TASK_EXITED;
+    return;
+}
+
+void remove_task_from_list(task_t* task){
+    if (task->state != TASK_EXITED){
+        task->state = TASK_EXITED;
     }
 
-    *out = current_task->queue[current_task->queue_head];
-    current_task->queue_head = (current_task->queue_head + 1) % MSG_QUEUE_SIZE;
-
-    current_task->queue_full = 0;
-
-    asm volatile("sti");
-    return 1;
+    task_t* prev_task = &task_table[task->tid - 1];
+    prev_task->next = &task_table[task->next->tid];
+    return;
 }
+
 
 void scheduler_update_time(void) {
-    jiffies++;
+    system_ticks++;
+    usage_ticks++;
+
+    if(current_task != idle_task){
+        busy_ticks++;
+    }
 
     size_t cnt = 0;
     for (task_t *t = task_head; t; t = t->next) {
-        if (t->state == TASK_SLEEPING && (int32_t)(t->wake_tick - jiffies) <= 0) {
+        if (t->state == TASK_SLEEPING && (int32_t)(t->wake_tick - system_ticks) <= 0) {
             t->state = TASK_READY;
         }
         if (cnt++ >= task_count) break;
@@ -94,22 +86,34 @@ void scheduler_update_time(void) {
     return;
 }
 
+//!! add page directories
 task_t* scheduler_choose_next(void) {
-    if (!current_task || !task_head) return current_task;
+    if (!current_task || !task_head)
+        return idle_task;
 
     task_t *next = current_task;
-    size_t max = task_count + 1;
+    size_t max = task_count;
 
     while (max--) {
         next = next->next ? next->next : task_head;
-        if (next->state == TASK_READY)
+        
+        if (next->state == TASK_READY) {
             return next;
+            
+        }
+
+        if (next->state == TASK_EXITED) {
+            remove_task_from_list(next);
+        }
     }
 
-    return current_task;
+    serial_print("IDLE\n");
+    return idle_task;
+
 }
 
 void scheduler_tick(void) {
+   
     scheduler_update_time();
 
     task_t *old = current_task;
@@ -117,41 +121,25 @@ void scheduler_tick(void) {
 
     if (next != old)
         current_task = next;
-
+        current_process = current_task->parent_process;
     return;
 }
 
-int create_task(task_fn fn,char* name, void *arg) {
-   
-    if (task_count >= MAX_TASKS) return -1;
+task_t* alloc_task(){
+    if (task_count >= MAX_TASKS) return NULL;
+    
     asm volatile("cli");
+    // !!! change to kernel heap (kmalloc)
+    task_t *t = kmalloc(sizeof(task_t)); 
+    if(t==0){asm volatile("sti");return 0;}
+    memset(t, 0, sizeof(task_t));
+    
 
-    task_t *t = &task_table[task_count];
-    t->pid = next_pid++;
+    t->tid = tid_count;
     t->next = NULL;
-
-    strcpy(t->taskname, name, strlen(name));
-    t->taskname[sizeof(t->taskname) - 1] = '\0';
-
-    uint32_t *sp = (uint32_t*)((uintptr_t)t->stack + KERNEL_STACK_SIZE);
-
-    // stackframe opzetten
-    *(--sp) = INITIAL_EFLAGS;   // eflags
-    *(--sp) = KERNEL_CODE_SELECTOR;  // cs
-    *(--sp) = (uint32_t)fn;     // eip (entry point of the task)
-
-    *(--sp) = 0x0; // eax
-    *(--sp) = 0x0; // ecx
-    *(--sp) = 0x0; // edx
-    *(--sp) = 0x0; // ebx
-    *(--sp) = 0x0; // esp
-    *(--sp) = 0x0; // ebp
-    *(--sp) = (uint32_t) arg; // esi (arg)
-    *(--sp) = 0x0; // edi
-
-    t->esp = sp;
-
+    t->state = TASK_BLOCKED;
     if (!task_head) {
+
         task_head = t;
         t->next = t;
     } else {
@@ -161,21 +149,120 @@ int create_task(task_fn fn,char* name, void *arg) {
         t->next = task_head;
     }
 
-    t->queue_head = 0;
-    t->queue_tail = 0;
-    t->queue_full = false;
-    t->state = TASK_READY;
-
     task_count++;
+    tid_count++;
+    asm volatile("sti");
+    return t;
+}
+
+// TODO include args in task_fn
+task_t* create_ktask(task_fn fn, void *arg) {
+    task_t* t = alloc_task();
+    if(t==0){return 0;}
+   
+
+    asm volatile("cli");
+    uint32_t *sp = (uint32_t*)((uintptr_t)t->stack + KERNEL_STACK_SIZE);
+
+    // set interrupt stack frame for interrupt return, after timer interrupt
+    *(--sp) = INITIAL_EFLAGS;   // eflags
+    *(--sp) = KERNEL_CODE_SELECTOR;  // cs
+    *(--sp) = (uint32_t)fn;     // eip (entry point of the task)
+
+    *(--sp) = 0x0; // eax
+    *(--sp) = 0x0; // ecx
+    *(--sp) = 0x0; // edx
+    *(--sp) = 0x0; // ebx
+    *(--sp) = 0x0; // esp (placeholder)
+    *(--sp) = 0x0; // ebp
+    *(--sp) = (uint32_t) arg; // esi (arg)
+    *(--sp) = 0x0; // edi
+
+    t->esp = sp;
+
+    t->state = TASK_READY;
     asm("sti");
-    return t->pid;
+    
+    return t;
+}
+
+task_t* create_ptask(process_t* proc, void* entry) {
+   
+    task_t* t = alloc_task();
+    if(t==0){return 0;}
+
+    asm volatile("cli");
+    uint32_t *sp = (uint32_t*)((uintptr_t)t->stack + KERNEL_STACK_SIZE);
+
+    // set interrupt stack frame for interrupt return, after timer interrupt
+    *(--sp) = INITIAL_EFLAGS;   // eflags
+    *(--sp) = KERNEL_CODE_SELECTOR;  // cs
+    *(--sp) = (uint32_t)entry;     // eip (entry point of the task)
+
+    *(--sp) = 0x0; // eax
+    *(--sp) = 0x0; // ecx
+    *(--sp) = 0x0; // edx
+    *(--sp) = 0x0; // ebx
+    *(--sp) = 0x0; // esp (placeholder)
+    *(--sp) = 0x0; // ebp
+    *(--sp) = (uint32_t) 0x0;//arg; // esi (arg)
+    *(--sp) = 0x0; // edi
+
+    t->esp = sp;
+
+    t->state = TASK_READY;
+    asm("sti");
+    return t;
+}
+
+process_t* create_process(char* name /*elf_data*/, task_fn fn){
+    
+    // !! update to kernel heap (kmalloc)
+    process_t* proc = kmalloc(sizeof(process_t));
+    if(proc==NULL){return 0;}
+    asm("cli");
+    memset(proc, 0, sizeof(process_t));
+
+    for(int i = 0; i < MAX_FD; i++)
+    proc->fd_table[i] = NULL;
+
+    proc->cwd = root_inode;
+    inode_ref(root_inode);
+
+    // proc->page_directory = create_page_directory();
+    // 
+    // load_elf(proc-page_directory, elf_data)
+    // entry = elf_get_entry(elf_data);
+    
+    
+    task_t* main_task = create_ptask(proc, (void*)fn);
+    if(main_task == NULL){asm("sti");return 0;}
+
+    main_task->parent_process = proc;
+    proc->main_task = main_task;
+    proc->pid = pid_count;
+
+    process_count++;
+    pid_count++;
+    asm("cli");
+    return proc;
+}
+
+
+
+task_t* create_idle(task_fn fn, void *arg) {
+   
+    create_ktask((void*)idle_func, 0);
+}
+
+void init_scheduler(){
+    idle_task = create_idle((void*)idle_func,0);
+    return;
 }
 
 void start_multitasking(void) {
-
     if (!task_head) return;
     current_task = task_head;
-    
     uint32_t *kernel_esp;
     context_switch(&kernel_esp, current_task->esp);
 }
@@ -183,3 +270,5 @@ void start_multitasking(void) {
 task_t* get_task_table(){
     return task_table;
 }
+
+

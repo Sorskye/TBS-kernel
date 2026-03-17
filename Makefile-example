@@ -1,11 +1,11 @@
 # === Project Configuration ===
-PROJECT_NAME := UPL-x86
+PROJECT_NAME := TBS-86
 TARGET       := i686-elf
 BUILD_DIR    := build
 ISO_DIR      := iso
 SRC_DIR      := src
 
-GRUBTHEME	:= grubtheme
+
 
 CC := $(TARGET)-gcc
 AS := nasm
@@ -13,7 +13,7 @@ LD := $(TARGET)-ld
 OBJCOPY := $(TARGET)-objcopy
 NM := $(TARGET)-nm
 
-INCLUDES := -Isrc/include -Isrc/include/kernel -Isrc/include/lib -Isrc/arch/i686/include
+INCLUDES := -Isrc/include -Isrc/include/kernel -Isrc/include/lib -Isrc/arch/i686/include -Isrc/kernel/modules/include
 CFLAGS := -ffreestanding -O2 -Wall -Wextra -std=gnu99  $(INCLUDES)
 LDFLAGS := -T linker.ld -nostdlib
 

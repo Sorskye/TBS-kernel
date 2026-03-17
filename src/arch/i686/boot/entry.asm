@@ -1,7 +1,7 @@
 section .multiboot
 align 4
     MULTIBOOT_MAGIC      equ 0x1BADB002
-    MULTIBOOT_FLAGS      equ (1 << 0) | (1 << 1)   
+    MULTIBOOT_FLAGS      equ (1 << 0) | (1 << 1)    ; no memory map, no video mode, simple setup
     MULTIBOOT_CHECKSUM   equ -(MULTIBOOT_MAGIC + MULTIBOOT_FLAGS)
 
     dd MULTIBOOT_MAGIC
@@ -15,6 +15,9 @@ extern kernel_main
 extern no_sse
 
 global gdt_flush
+global page_directory
+global first_page_table
+
 gdt_flush:
     
     mov eax, [esp + 4]
@@ -23,7 +26,7 @@ gdt_flush:
     jmp 0x08:flush_cs_reload
 
 flush_cs_reload:
-    mov ax, 0x10
+    mov ax, 0x10 ; 0x10 = gdt index 2 (kernel data)
     mov ds, ax
     mov es, ax
     mov fs, ax
@@ -34,14 +37,59 @@ flush_cs_reload:
 global _start
 _start:
     mov esp, stack_top
-    push ebx
-    push eax
+    push ebx        ; multibooot memory map pointer
+    push eax        ; magic number
 
     mov eax, 1
     cpuid
     test edx, (1<<25)
     jz no_sse
-    ;SSE is beschikbaar
+
+    ; Clear page directory
+mov edi, page_directory
+mov ecx, 1024
+xor eax, eax
+rep stosd
+
+
+;; create tables
+mov esi, 4 
+xor ebx, ebx             
+
+ ; 4 = number of page tables (16MiB)
+mov ecx, 4              
+setup_tables:
+
+    push ecx
+
+    ; Fill one page table
+    mov edi, esi
+    mov ecx, 1024
+
+.fill_pt:
+    mov eax, ebx
+    or eax, 0x3
+    mov [edi], eax
+
+    add ebx, 0x1000
+    add edi, 4
+    loop .fill_pt
+
+    ; Add to page directory
+    mov eax, esi
+    or eax, 0x3
+
+    mov edx, page_directory
+    mov ecx, 4
+    sub ecx, [esp]
+    mov [edx + ecx*4], eax
+
+    add esi, 4096
+
+    pop ecx
+    loop setup_tables
+
+    ;SSE is available
    
     call kernel_main
 
@@ -50,5 +98,14 @@ _start:
     jmp .hang
 
 section .bss
+align 4096
+page_directory:
+    resb 4096
+
+align 4096
+first_page_table:
+    resb 4096
+
+
 stack_bottom: resb 4096
 stack_top:

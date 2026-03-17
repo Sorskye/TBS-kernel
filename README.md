@@ -34,9 +34,8 @@ To build the UPL Kernel, follow these steps:
    After building, install the kernel to your target device or use QEMU for emulation.
 
 ## Images
-- ![Kernel Architecture](images/kernel_architecture.png)
-   *Diagram of UPL Kernel architecture*
-- ![Build Process](images/build_process.png)
-   *Overview of the kernel build process*
+TBS kernel running a simple window compositor using a tty for keyboard input and command output. Use of the simple ramfs can be seen with directory operations.
+Also a placeholder command can be seen that enumerates the pci devices connected to the machine.
+<img width="931" height="515" alt="rev1" src="https://github.com/user-attachments/assets/5fbeb035-13a5-412f-a22f-c7f49e38de13" />
 
 ---

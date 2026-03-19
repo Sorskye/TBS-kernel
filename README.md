@@ -16,25 +16,29 @@ Current functionality implemented in the kernel:
 
 - **Preemptive Multitasking**  
   A timer-driven scheduler allowing multiple tasks to run concurrently.
+  Round robin style.
 
 - **TTY Subsystem**  
   Basic terminal interfaces used for system interaction and debugging.
 
 - **Window Compositor**  
   A minimal graphical compositor capable of drawing and managing simple windows.
+  Runs in VGA text mode.
 
 - **Memory Management**
   - Identity-mapped paging
   - Basic virtual memory setup
+  - No ring userspace seperation for simplicity.
 
 - **RAM Filesystem (Work in Progress)**  
-  An in-memory filesystem used during early system development.
+  - An in-memory filesystem used during early system development.
+  - Loads external .img file using grub modules, mounts it to the ram filesystem.
 
 ---
 
 ## **Architecture**
 
-TBS currently follows a **monolithic kernel architecture**, with most core functionality executing in kernel space (ring 0).
+TBS currently follows a **monolithic kernel architecture**, executing in kernel space (ring 0).
 
 Paging is enabled for memory management and hardware-enforced protection. The system currently uses identity-mapped memory during early initialization.
 
@@ -64,6 +68,7 @@ Planned next steps for the system:
 - Add a minimal **C runtime environment using musl libc**
 - Port **TinyCC (TCC)** to allow compiling programs directly inside the OS
 - Expand userspace support
+- Use graphics framebuffer instead of VGA for more complicated graphics.
 
 ---
 
@@ -88,8 +93,10 @@ A simplified overview of the system startup sequence:
 - Bootloader loads the kernel
 - Kernel initializes basic hardware and memory
 - Paging is enabled
+- Bootloader modules are parsed
+- Filesystem gets mounted.
 - Scheduler and multitasking are initialized
-- Core subsystems (TTY, compositor, filesystem) start
+- Core subsystems (TTY, compositor) start
 - System enters the main kernel loop
 
 ## **Project Structure**

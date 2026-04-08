@@ -38,9 +38,10 @@ Current functionality implemented in the kernel:
 
 ## **Architecture**
 
-TBS currently follows a **monolithic kernel architecture**, executing in kernel space (ring 0).
+The goal for TBS is to follow a **micro-kernel architecture**, executing as much as possible in ring 3.
+The kernel isn't a microkernel yet. Its in its early stages of development.
 
-Paging is enabled for memory management and hardware-enforced protection. The system currently uses identity-mapped memory during early initialization.
+Paging is enabled for memory management and hardware-enforced protection. The system currently uses identity-mapped memory, and a bump allocator for early initialization.
 
 While the kernel is currently monolithic, the design leaves room for potential **future separation between kernel and userspace** as the system evolves.
 

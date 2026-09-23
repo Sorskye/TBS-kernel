@@ -1,3 +1,7 @@
+# !! NOTICE
+## The kernel itself is being completly rewritten. This is the outdated version. The new version will be published to this repo in the end of 2026. This version contains silly errors and should not be used as an example
+
+
 # TBS Kernel
 
 ## **Overview**
